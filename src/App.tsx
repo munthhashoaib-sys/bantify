@@ -9,7 +9,8 @@ import LeadHistory from './components/LeadHistory';
 import QualificationRubric from './components/QualificationRubric';
 import SalesforceModal from './components/SalesforceModal';
 import { SalesforceOpportunity, normalizeContactFields } from './types';
-import { db } from './firebase';
+import { db, auth, signInWithGoogle, signOutUser } from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, query, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { 
   Briefcase, History, FilePenLine, BarChart3, Database, Shield, BookOpen, ExternalLink,
@@ -23,8 +24,20 @@ export default function App() {
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
   const [toastSuccess, setToastSuccess] = useState<string | null>(null);
   const [loadingTracker, setLoadingTracker] = useState(true);
+const [user, setUser] = useState<User | null>(null);
+const [authLoading, setAuthLoading] = useState(true);
 
-  // Salesforce connection session state (held in memory only)
+  // Watch Firebase authentication state
+useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    setUser(firebaseUser);
+    setAuthLoading(false);
+  });
+
+  return () => unsubscribe();
+}, []);
+
+// Salesforce connection session state (held in memory only)
   const [sfInstanceUrl, setSfInstanceUrl] = useState('');
   const [sfAccessToken, setSfAccessToken] = useState('');
   const [sfIsConnected, setSfIsConnected] = useState(false);
@@ -98,6 +111,12 @@ export default function App() {
 
   // Save or update an opportunity in Firestore "opportunities" collection
   const handleSaveOpportunityToFirestore = async (opp: SalesforceOpportunity): Promise<SalesforceOpportunity> => {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      throw new Error('You must be signed in to save an opportunity.');
+    }
+
     // Maintain exact document ID for the lifetime of the analysis
     const docId = opp.id ? opp.id : doc(collection(db, 'opportunities')).id;
     const createdAt = opp.createdAt || opp.analyzedAt || new Date().toISOString();
@@ -130,7 +149,14 @@ export default function App() {
       isCorrected: opp.isCorrected ?? false,
       salesforceId: opp.salesforceId || null,
       salesforceUrl: opp.salesforceUrl || null,
-      salesforceLoggedAt: opp.salesforceLoggedAt || null
+      salesforceLoggedAt: opp.salesforceLoggedAt || null,
+      workspaceId: 'bantify-demo',
+      lastUpdatedByUid: currentUser.uid,
+      lastUpdatedByEmail: currentUser.email || '',
+      ...(!opp.id ? {
+        createdByUid: currentUser.uid,
+        createdByEmail: currentUser.email || ''
+      } : {})
     };
 
     try {
@@ -285,6 +311,24 @@ export default function App() {
                   </span>
                 )}
               </button>
+
+              {user ? (
+                <div
+                  className="flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-lg text-xs font-bold font-display tracking-wide uppercase text-emerald-400 whitespace-nowrap"
+                  title={user.email || 'Authenticated user'}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  Signed In
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => signInWithGoogle()}
+                  className="flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-lg text-xs font-bold font-display tracking-wide transition-all uppercase text-slate-400 hover:text-white whitespace-nowrap"
+                >
+                  Sign In
+                </button>
+              )}
 
               <button
                 id="tab-rubric"

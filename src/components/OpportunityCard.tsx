@@ -2034,7 +2034,14 @@ export default function OpportunityCard({
                   isCorrected: true
                 };
                 setEditedOpp(updated);
-                onUpdate(updated);
+
+                // Final human-review confirmation is the explicit save gate.
+                if (onAddOpportunity) {
+                  onAddOpportunity(updated);
+                } else {
+                  onUpdate(updated);
+                }
+
                 setSavedToTrackerMsg(true);
                 setTimeout(() => setSavedToTrackerMsg(false), 4000);
               }}

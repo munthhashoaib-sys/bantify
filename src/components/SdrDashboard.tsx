@@ -284,14 +284,6 @@ export default function SdrDashboard({
 
       setCurrentOpportunity(newOpp);
 
-      // Save automatically ONLY if verdict is PASS or FLAGGED.
-      // If verdict is FAIL, do NOT save automatically until SDR corrects it.
-      if (verdict === 'PASS' || verdict === 'FLAGGED') {
-        const saved = await onAddOpportunity(newOpp);
-        if (saved) {
-          setCurrentOpportunity(saved);
-        }
-      }
 
     } catch (err: any) {
       console.error(err);
@@ -513,7 +505,21 @@ export default function SdrDashboard({
               opportunities={opportunities}
               onUpdate={async (updated) => {
                 setCurrentOpportunity(updated);
-                const saved = await onUpdateOpportunity(updated);
+
+                // Existing historical records may save edits immediately.
+                // New AI analyses stay local until human review is confirmed.
+                if (initialOpportunity) {
+                  const saved = await onUpdateOpportunity(updated);
+                  if (saved) {
+                    setCurrentOpportunity(saved);
+                  }
+                }
+              }}
+              onAddOpportunity={async (updated) => {
+                const saved = initialOpportunity
+                  ? await onUpdateOpportunity(updated)
+                  : await onAddOpportunity(updated);
+
                 if (saved) {
                   setCurrentOpportunity(saved);
                 }
