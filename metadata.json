@@ -1,0 +1,6 @@
+{
+  "name": "BANTify",
+  "description": "An automated AI utility for SDRs to parse call transcripts, qualify leads using the BANT framework, and generate structured Salesforce opportunity logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
