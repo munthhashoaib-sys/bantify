@@ -1,8 +1,37 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isBantifyMember() {
+      return request.auth != null
+        && exists(
+          /databases/$(database)/documents/workspaces/bantify-demo/members/$(request.auth.uid)
+        );
+    }
     match /opportunities/{opportunityId} {
-      allow read, write: if true;
+      // Approved BANTify members can view shared opportunity history.
+      allow read: if isBantifyMember();
+      // New records must belong to BANTify and identify the signed-in user.
+      allow create: if isBantifyMember()
+        && request.resource.data.workspaceId == 'bantify-demo'
+        && request.resource.data.lastUpdatedByUid == request.auth.uid;
+      // Members may update records, but the resulting record must be
+      // associated with BANTify and the authenticated updater.
+      allow update: if isBantifyMember()
+        && request.resource.data.workspaceId == 'bantify-demo'
+        && request.resource.data.lastUpdatedByUid == request.auth.uid;
+      allow delete: if isBantifyMember();
+    }
+    match /workspaces/bantify-demo {
+      allow read: if isBantifyMember();
+      allow write: if false;
+      match /members/{uid} {
+        allow read: if isBantifyMember();
+        allow write: if false;
+      }
+    }
+    // Everything not explicitly allowed above is denied.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
