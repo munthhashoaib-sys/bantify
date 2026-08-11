@@ -767,16 +767,21 @@ export default function OpportunityCard({
 
     const payload = buildSalesforcePayload(editedOpp, opportunities, sfInstanceUrl);
     const cleanUrl = sfInstanceUrl.trim().replace(/\/+$/, '');
-    const endpoint = `${cleanUrl}/services/data/v60.0/sobjects/Opportunity/`;
+    const isOAuth = sfAccessToken === 'OAUTH';
+    const endpoint = isOAuth
+      ? '/api/salesforce/log'
+      : `${cleanUrl}/services/data/v60.0/sobjects/Opportunity/`;
 
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${sfAccessToken.trim()}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
+        headers: isOAuth
+          ? { 'Content-Type': 'application/json' }
+          : {
+              'Authorization': `Bearer ${sfAccessToken.trim()}`,
+              'Content-Type': 'application/json'
+            },
+        body: JSON.stringify(isOAuth ? { payload } : payload)
       });
 
       if (response.ok || response.status === 201 || response.status === 200) {

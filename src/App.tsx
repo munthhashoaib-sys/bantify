@@ -43,6 +43,28 @@ useEffect(() => {
   const [sfIsConnected, setSfIsConnected] = useState(false);
   const [isSfModalOpen, setIsSfModalOpen] = useState(false);
 
+  // Detect a server-side Salesforce OAuth session (survives page reloads)
+  useEffect(() => {
+    fetch('/api/oauth/status')
+      .then((r) => r.json())
+      .then((s) => {
+        if (s && s.connected) {
+          setSfInstanceUrl(s.instanceUrl || '');
+          setSfAccessToken('OAUTH');
+          setSfIsConnected(true);
+        }
+      })
+      .catch(() => {});
+    // Surface OAuth errors returned on the callback redirect
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sf') === 'connected' || params.get('sf_error')) {
+      if (params.get('sf_error')) {
+        setFirestoreError(`Salesforce OAuth: ${params.get('sf_error')}`);
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Read from Firestore "opportunities" collection on load, ordered by created timestamp descending
   useEffect(() => {
     setLoadingTracker(true);

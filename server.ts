@@ -8,6 +8,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -18,7 +19,7 @@ async function startServer() {
   app.use(express.json({ limit: "25mb" }));
   app.use(express.urlencoded({ limit: "25mb", extended: true }));
   
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // API route to perform BANT analysis via Gemini server-side
   app.post("/api/analyze", async (req, res) => {
@@ -417,6 +418,179 @@ Generate the strict comparison text now.`;
     } catch (error: any) {
       console.error("Gemini Compare failure:", error);
       return res.status(500).json({ error: error.message || "Comparison failed." });
+    }
+  });
+
+
+  // ============ Salesforce OAuth 2.0 (Web Server Flow + PKCE) ============
+  const SF_LOGIN_BASE =
+    process.env.SF_LOGIN_URL ||
+    "https://orgfarm-e28fdc53cf-dev-ed.develop.my.salesforce.com";
+
+  type SfSession = {
+    accessToken: string;
+    refreshToken?: string;
+    instanceUrl: string;
+    username?: string;
+  };
+  let sfSession: SfSession | null = null;
+  const pkceStore = new Map<string, string>(); // state -> code verifier
+
+  const b64url = (buf: Buffer) =>
+    buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  // Step 1: send the user to Salesforce with a PKCE challenge
+  app.get("/api/oauth/login", (req, res) => {
+    const clientId = process.env.SF_CLIENT_ID;
+    const redirectUri = process.env.SF_REDIRECT_URI;
+    if (!clientId || !redirectUri) {
+      return res
+        .status(500)
+        .send("SF_CLIENT_ID / SF_REDIRECT_URI missing. Add them to .env and restart the server.");
+    }
+    const verifier = b64url(crypto.randomBytes(32));
+    const challenge = b64url(crypto.createHash("sha256").update(verifier).digest());
+    const state = b64url(crypto.randomBytes(16));
+    pkceStore.set(state, verifier);
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: "api refresh_token",
+      state,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+    res.redirect(`${SF_LOGIN_BASE}/services/oauth2/authorize?${params.toString()}`);
+  });
+
+  // Step 2: Salesforce redirects back; exchange the code (with verifier + secret) for tokens
+  app.get("/api/oauth/callback", async (req, res) => {
+    const { code, state, error, error_description } = req.query as Record<string, string>;
+    if (error) {
+      return res.redirect(`/?sf_error=${encodeURIComponent(error_description || error)}`);
+    }
+    const verifier = state ? pkceStore.get(state) : undefined;
+    if (!code || !verifier) {
+      return res.redirect(
+        `/?sf_error=${encodeURIComponent("OAuth state mismatch. Please try connecting again.")}`
+      );
+    }
+    pkceStore.delete(state as string);
+    try {
+      const body = new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        client_id: process.env.SF_CLIENT_ID || "",
+        client_secret: process.env.SF_CLIENT_SECRET || "",
+        redirect_uri: process.env.SF_REDIRECT_URI || "",
+        code_verifier: verifier,
+      });
+      const tokenRes = await fetch(`${SF_LOGIN_BASE}/services/oauth2/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      const data: any = await tokenRes.json();
+      if (!tokenRes.ok) {
+        return res.redirect(
+          `/?sf_error=${encodeURIComponent(data.error_description || data.error || "Token exchange failed")}`
+        );
+      }
+      sfSession = {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        instanceUrl: data.instance_url,
+      };
+      // Best-effort identity lookup so the UI can show who is connected
+      try {
+        const idRes = await fetch(data.id, {
+          headers: { Authorization: `Bearer ${data.access_token}` },
+        });
+        if (idRes.ok) {
+          const id: any = await idRes.json();
+          sfSession.username = id.username;
+        }
+      } catch {}
+      return res.redirect("/?sf=connected");
+    } catch (e: any) {
+      return res.redirect(`/?sf_error=${encodeURIComponent(e.message || "OAuth failed")}`);
+    }
+  });
+
+  app.get("/api/oauth/status", (_req, res) => {
+    if (sfSession) {
+      return res.json({
+        connected: true,
+        instanceUrl: sfSession.instanceUrl,
+        username: sfSession.username || null,
+      });
+    }
+    return res.json({ connected: false });
+  });
+
+  app.post("/api/oauth/disconnect", (_req, res) => {
+    sfSession = null;
+    res.json({ ok: true });
+  });
+
+  // Salesforce fetch with one automatic refresh-and-retry on 401
+  async function sfFetch(pathname: string, init: any): Promise<any> {
+    if (!sfSession) throw new Error("Not connected to Salesforce.");
+    const doFetch = () =>
+      fetch(`${sfSession!.instanceUrl}${pathname}`, {
+        ...init,
+        headers: { ...(init.headers || {}), Authorization: `Bearer ${sfSession!.accessToken}` },
+      });
+    let resp = await doFetch();
+    if (resp.status === 401 && sfSession.refreshToken) {
+      const body = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: sfSession.refreshToken,
+        client_id: process.env.SF_CLIENT_ID || "",
+        client_secret: process.env.SF_CLIENT_SECRET || "",
+      });
+      const r = await fetch(`${SF_LOGIN_BASE}/services/oauth2/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      const d: any = await r.json();
+      if (r.ok && d.access_token) {
+        sfSession.accessToken = d.access_token;
+        if (d.instance_url) sfSession.instanceUrl = d.instance_url;
+        resp = await doFetch();
+      }
+    }
+    return resp;
+  }
+
+  // Server-side proxy: the browser never holds OAuth tokens
+  app.post("/api/salesforce/log", async (req, res) => {
+    try {
+      if (!sfSession) {
+        return res.status(401).json({ error: "Salesforce OAuth session not connected." });
+      }
+      const payload = req.body?.payload;
+      if (!payload || typeof payload !== "object") {
+        return res.status(400).json({ error: "Missing opportunity payload." });
+      }
+      const resp = await sfFetch("/services/data/v60.0/sobjects/Opportunity/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const text = await resp.text();
+      let data: any = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+      if (resp.ok) {
+        return res.status(resp.status).json({ ...data, instanceUrl: sfSession.instanceUrl });
+      }
+      return res
+        .status(resp.status)
+        .json(Array.isArray(data) ? { errors: data } : data || { error: `HTTP ${resp.status}` });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Salesforce log failed." });
     }
   });
 
