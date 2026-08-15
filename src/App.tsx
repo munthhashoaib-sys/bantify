@@ -335,13 +335,16 @@ useEffect(() => {
               </button>
 
               {user ? (
-                <div
-                  className="flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-lg text-xs font-bold font-display tracking-wide uppercase text-emerald-400 whitespace-nowrap"
-                  title={user.email || 'Authenticated user'}
+                <button
+                  type="button"
+                  onClick={() => signOutUser()}
+                  className="group flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-lg text-xs font-bold font-display tracking-wide uppercase text-emerald-400 hover:text-rose-400 hover:bg-slate-800/60 transition-all whitespace-nowrap cursor-pointer"
+                  title={`${user.email || 'Authenticated user'} - click to sign out`}
                 >
-                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                  Signed In
-                </div>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 group-hover:bg-rose-400 transition-colors"></span>
+                  <span className="group-hover:hidden">Signed In</span>
+                  <span className="hidden group-hover:inline">Sign Out</span>
+                </button>
               ) : (
                 <button
                   type="button"
