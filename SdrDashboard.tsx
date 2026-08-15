@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { SalesforceOpportunity, normalizeContactFields } from '../types';
 import AnimateLoader from './AnimateLoader';
 import OpportunityCard from './OpportunityCard';
@@ -39,15 +39,6 @@ export default function SdrDashboard({
   // Input States
   const [transcriptInput, setTranscriptInput] = useState('');
   const [companyNameInput, setCompanyNameInput] = useState('');
-  const [sfAccounts, setSfAccounts] = useState<string[]>([]);
-
-  // Load Account names from Salesforce (via the server-side OAuth session)
-  useEffect(() => {
-    fetch('/api/salesforce/accounts')
-      .then((r) => (r.ok ? r.json() : { accounts: [] }))
-      .then((data) => setSfAccounts(Array.isArray(data.accounts) ? data.accounts : []))
-      .catch(() => setSfAccounts([]));
-  }, []);
 
   // Audio Upload States
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -469,12 +460,15 @@ export default function SdrDashboard({
               className="w-full text-xs font-sans p-2.5 border border-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 rounded-lg bg-slate-950 text-slate-200 disabled:bg-[#04060b] disabled:text-slate-600"
             />
             <datalist id="known-companies">
-              {sfAccounts.map((name) => (
-                <option key={name} value={name} />
-              ))}
+              {Array.from(new Set((opportunities || [])
+                .map((o) => (o.companyName || '').trim())
+                .filter((n) => n && !n.startsWith('Not discussed'))))
+                .map((name) => (
+                  <option key={name} value={name} />
+                ))}
             </datalist>
             <p className="text-[10px] text-slate-500 mt-1.5 font-sans">
-              Suggestions come from your Salesforce Accounts. Set the account before analysis so the record and the historical comparison use the confirmed name. Leave blank to use the name extracted from the call.
+              Set the account before analysis so the record and the historical comparison use the confirmed name. Leave blank to use the name extracted from the call.
             </p>
           </div>
 

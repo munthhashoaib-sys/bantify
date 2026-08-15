@@ -565,6 +565,25 @@ Generate the strict comparison text now.`;
     return resp;
   }
 
+  // Account name suggestions, read live from Salesforce via the OAuth session
+  app.get("/api/salesforce/accounts", async (_req, res) => {
+    try {
+      if (!sfSession) {
+        return res.status(401).json({ error: "Salesforce OAuth session not connected.", accounts: [] });
+      }
+      const soql = encodeURIComponent("SELECT Name FROM Account ORDER BY Name LIMIT 200");
+      const resp = await sfFetch(`/services/data/v60.0/query/?q=${soql}`, { method: "GET" });
+      const data: any = await resp.json();
+      if (!resp.ok) {
+        return res.status(resp.status).json({ error: "Account query failed.", accounts: [] });
+      }
+      const accounts = (data.records || []).map((r: any) => r.Name).filter(Boolean);
+      return res.json({ accounts });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || "Account lookup failed.", accounts: [] });
+    }
+  });
+
   // Server-side proxy: the browser never holds OAuth tokens
   app.post("/api/salesforce/log", async (req, res) => {
     try {
