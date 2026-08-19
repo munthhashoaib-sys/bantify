@@ -4,7 +4,7 @@
 
 BANTify turns SDR call transcripts into validated, structured Salesforce Opportunity records in under three minutes, replacing 10+ minutes of manual typing per call. Every record is audited by a second AI against the transcript and approved by a human before it touches the CRM.
 
-> 🎥 **Demo video:** _coming soon_ · 📋 **Full PRD:** [Notion](https://eager-umbra-acc.notion.site/BANTify-Product-Requirements-Document-v2-1-3ad3fe05d4b08190a98eff349aa52ede) · 🔴 **Live demo:** _coming soon_
+> 🎥 **Demo video:** _coming soon_ · 📋 **Full PRD:** [Notion](https://eager-umbra-acc.notion.site/BANTify-Product-Requirements-Document-v2-1-3ad3fe05d4b08190a98eff349aa52ede) · 🔴 **Live demo:** [bantify.onrender.com](https://bantify.onrender.com) (sign in required; first load may take a minute on the free tier)
 
 ## Results
 
@@ -42,6 +42,8 @@ Two feedback loops close the system: Firestore feeds prior call records into the
 **A second AI audits the first.** The extraction model's output is never trusted directly. A judge pass re-reads the transcript, verifies every field, and attaches the supporting quote. Records that fail cannot be logged until corrected.
 
 **Rules where the AI wanted opinions.** Qualification follows a written rubric (published inside the app on its own tab), so identical calls get identical ratings. Missing information gets honest labels ("Raised but prospect deferred") instead of invented answers. Ambiguous statements stay ambiguous and generate the clarifying question for the next call.
+
+**The SDR confirms the account up front.** An optional company field suggests Account names live from the connected Salesforce org, so the record and the historical comparison run on the CRM's own account name rather than a guess extracted from the call. Records carry the name's provenance: manual or extracted.
 
 **A mandatory human checkpoint.** Nothing syncs to the CRM without the SDR confirming a four-item checklist. Stress testing showed the biggest failure mode was reps blindly trusting AI output; the checklist is the product's answer to its own most dangerous habit.
 
@@ -83,15 +85,12 @@ Requirements:
 
 1. A Google Gemini API key (set as `GEMINI_API_KEY`, never committed)
 2. A Firebase project with Firestore enabled (config in `src/firebase.ts`)
-3. A Salesforce org with the custom fields above created on the Opportunity object, and your app origin added to the org's CORS allowlist
+3. A Salesforce org with the custom fields above created on the Opportunity object, plus a Connected App for OAuth (callback URLs configured for your origins)
 4. A Salesforce access token, entered at runtime in the app's connection panel (held in memory only, never stored)
 
-## Deploying (Vercel)
+## Deployment
 
-1. Import the repo into Vercel
-2. Set `GEMINI_API_KEY` as an environment variable in the Vercel project settings. Never hardcode it
-3. Add the deployed domain to your Salesforce org's CORS allowlist (Setup → CORS)
-4. Set usage caps on your Gemini key in Google Cloud before making the deployment public, since a public URL means public API spend
+Deployed on Render as a Node web service from this repo. Build: `npm install && npm run build`. Start: `NODE_ENV=production npx tsx server.ts`. Environment variables: `GEMINI_API_KEY`, `SF_CLIENT_ID`, `SF_CLIENT_SECRET`, `SF_REDIRECT_URI` (the deployed callback URL), and the `VITE_FIREBASE_*` client config. The deployed domain must be added to the Salesforce Connected App's callback URLs and to Firebase's authorized domains.
 
 ## Known limitations
 
